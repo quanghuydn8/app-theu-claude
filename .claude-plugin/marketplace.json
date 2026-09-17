@@ -1,0 +1,12 @@
+{
+  "name": "app-theu-claude",
+  "owner": { "name": "Thomas Huy" },
+  "metadata": { "description": "Plugin Claude Code cho nhân viên dùng App Thêu" },
+  "plugins": [
+    {
+      "name": "app-theu",
+      "source": "./plugins/app-theu",
+      "description": "Nối Claude Code vào App Thêu (cụm Lên kệ Etsy/Shopify) qua cổng MCP"
+    }
+  ]
+}

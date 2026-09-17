@@ -1,0 +1,15 @@
+{
+  "name": "app-theu",
+  "version": "1.0.0",
+  "description": "Cho Claude Code đọc và thao tác trên App Thêu (cụm Lên kệ Etsy/Shopify) bằng khoá Claude cá nhân của bạn.",
+  "author": { "name": "Thomas Huy" },
+  "userConfig": {
+    "khoa_claude": {
+      "type": "string",
+      "title": "Khoá Claude",
+      "description": "Khoá lấy ở màn \"Kết nối Claude\" trong App Thêu (bắt đầu bằng atk_). Không chia sẻ cho ai.",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}
