@@ -28,6 +28,7 @@ SCRIPT = ROOT / "plugins" / "app-theu" / "scripts" / "dem_claude.py"
 KHOA = "atk_khoa_thu_nghiem_0123456789"
 BI_MAT = "NOI_DUNG_CHAT_BI_MAT_xyz"
 DUONG_DAN = "/home/huy/App/du_an_bi_mat"
+TOKEN = "sk-ant-oat01-TOKEN_BI_MAT_KHONG_DUOC_GUI"
 
 
 # ============================================================ máy chủ giả
@@ -36,6 +37,11 @@ class _MayChu:
         self.nhan: list[dict] = []        # mỗi request: {"headers":..., "raw": bytes, "json":...}
         self.da_co: set[str] = set()
         self.ma_tra = 200
+        self.hoi_usage: list[dict] = []
+        self.usage_ma = 200
+        self.usage_tra = {"five_hour": {"utilization": 12.0, "resets_at": "2026-11-03T08:00:00+00:00"},
+                          "seven_day": {"utilization": 53.0, "resets_at": "2026-11-04T06:00:00.818775+00:00"},
+                          "iguana_necktie": None}
         chu = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -65,11 +71,25 @@ class _MayChu:
                 self.end_headers()
                 self.wfile.write(out)
 
+            def do_GET(self):  # noqa: N802 — giả đường /api/oauth/usage của Anthropic
+                chu.hoi_usage.append(dict(self.headers))
+                if chu.usage_ma != 200:
+                    self.send_response(chu.usage_ma)
+                    self.end_headers()
+                    return
+                out = json.dumps(chu.usage_tra).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(out)))
+                self.end_headers()
+                self.wfile.write(out)
+
             def log_message(self, *a):
                 pass
 
         self.srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
         self.url = f"http://127.0.0.1:{self.srv.server_address[1]}/api/v2/dem-claude/lo"
+        self.url_usage = f"http://127.0.0.1:{self.srv.server_address[1]}/api/oauth/usage"
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
 
     def tat(self):
@@ -115,9 +135,17 @@ class _May:
         self.data.mkdir()
         self.dat_email("tk1@gmail.com")
 
+    def dat_token(self, tok=TOKEN, *, het_han_ms=None):
+        (self.home / ".claude").mkdir(parents=True, exist_ok=True)
+        (self.home / ".claude" / ".credentials.json").write_text(json.dumps({"claudeAiOauth": {
+            "accessToken": tok, "refreshToken": "REFRESH_" + tok,
+            "expiresAt": het_han_ms if het_han_ms is not None else int((time.time() + 3600) * 1000)},
+            "pluginSecrets": {"app-theu@app-theu-claude": {"khoa_claude": KHOA}}}), encoding="utf-8")
+
     def dat_email(self, email):
         (self.home / ".claude.json").write_text(json.dumps({
-            "oauthAccount": {"emailAddress": email, "displayName": "x"},
+            "oauthAccount": {"emailAddress": email, "displayName": "x",
+                             "subscriptionCreatedAt": "2026-05-12T03:04:05.000Z", "accountUuid": "uuid-bi-mat"},
             "projects": {DUONG_DAN: {"lastPrompt": BI_MAT}},
         }), encoding="utf-8")
 
@@ -133,7 +161,7 @@ class _May:
         env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
         env.update({"HOME": str(self.home), "USERPROFILE": str(self.home),
                     "CLAUDE_PLUGIN_DATA": str(self.data), "APP_THEU_DEM_URL": url,
-                    "APP_THEU_DEM_TU": "2026-11-01"})
+                    "APP_THEU_DEM_TU": "2026-11-01", "APP_THEU_DEM_URL_USAGE": url.rsplit("/api/", 1)[0] + "/api/oauth/usage"})
         if khoa is not None:
             env["CLAUDE_PLUGIN_OPTION_KHOA_CLAUDE"] = khoa
         if dong_bo:
@@ -234,6 +262,162 @@ def test_mot_tin_nhieu_dong_log_chi_gui_mot_lan(m, s):
     m.ghi("ses-2.jsonl", [_dong_assistant("msg_A")])  # phiên resume chép lại lịch sử
     m.chay(s.url)
     assert sorted(l["ma_tin"] for l in s.luot()) == ["msg_A", "msg_B"]
+
+
+# ============================================================ ca — ticket 03 (script bền)
+def _luot_gui(s):
+    return [l["ma_tin"] for l in s.luot()]
+
+
+@_ca
+def test_may_chu_sap_de_danh_roi_gui_bu(m, s):
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    m.chay("http://127.0.0.1:1/api/v2/dem-claude/lo")       # máy chủ không nối được
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_B")])
+    s.ma_tra = 503
+    m.chay(s.url)                                           # máy chủ lỗi 503
+    assert all(r["json"] for r in s.nhan) and not s.da_co
+    s.ma_tra = 200
+    m.chay(s.url)
+    assert sorted(s.da_co) == ["msg_A", "msg_B"]
+    m.chay(s.url)
+    assert sorted(_luot_gui(s)).count("msg_A") == 2         # 1 lần bị 503 + 1 lần nhận — không thêm nữa
+
+
+@_ca
+def test_hai_process_chay_chong_khong_gui_doi(m, s):
+    m.ghi("ses-1.jsonl", [_dong_assistant(f"msg_{i}") for i in range(300)])
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+    env.update({"HOME": str(m.home), "USERPROFILE": str(m.home), "CLAUDE_PLUGIN_DATA": str(m.data),
+                "APP_THEU_DEM_URL": s.url, "APP_THEU_DEM_TU": "2026-11-01", "APP_THEU_DEM_DONG_BO": "1",
+                "CLAUDE_PLUGIN_OPTION_KHOA_CLAUDE": KHOA, "APP_THEU_DEM_URL_USAGE": s.url_usage})
+    ps = [subprocess.Popen([sys.executable, str(SCRIPT)], stdin=subprocess.DEVNULL, env=env) for _ in range(4)]
+    for p in ps:
+        assert p.wait(timeout=60) == 0
+    ds = _luot_gui(s)
+    assert len(ds) == 300 and len(set(ds)) == 300, len(ds)
+
+
+@_ca
+def test_log_subagent_duoc_dem_va_danh_dau(m, s):
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    m.ghi("ses-1/subagents/agent-abc.jsonl", [_dong_assistant("msg_SUB", sidechain=True)])
+    m.chay(s.url)
+    ds = {l["ma_tin"]: l for l in s.luot()}
+    assert ds["msg_SUB"]["la_subagent"] is True and ds["msg_A"]["la_subagent"] is False
+
+
+@_ca
+def test_thu_muc_du_an_kieu_windows_va_ten_la(m, s):
+    """Windows: Claude đặt tên thư mục dự án kiểu `C--Users-bach-Ứng dụng`; cấu hình ở CLAUDE_CONFIG_DIR."""
+    cfg = m.goc / "cfg claude Ứng"
+    p = cfg / "projects" / "C--Users-bach-Ứng dụng thêu" / "ses-9.jsonl"
+    p.parent.mkdir(parents=True)
+    p.write_text(json.dumps(_dong_assistant("msg_W")) + "\r\n", encoding="utf-8")  # xuống dòng CRLF
+    (cfg / ".claude.json").write_text(json.dumps({"oauthAccount": {"emailAddress": "tkwin@gmail.com"}}))
+    m.chay(s.url, them_env={"CLAUDE_CONFIG_DIR": str(cfg)})
+    p.open("a", encoding="utf-8").write(json.dumps(_dong_assistant("msg_W2")) + "\r\n")
+    m.chay(s.url, them_env={"CLAUDE_CONFIG_DIR": str(cfg)})
+    assert _luot_gui(s) == ["msg_W", "msg_W2"]
+    assert s.nhan[-1]["json"]["email_tk"] == "tkwin@gmail.com"
+
+
+@_ca
+def test_email_doi_giua_hai_lo_moi_lo_dung_email_luc_do(m, s):
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_0")])
+    m.chay(s.url)                                   # lần đầu = đếm bù
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    m.chay(s.url)
+    m.dat_email("tk2@gmail.com")
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_B")])
+    m.chay(s.url)
+    theo = {l["ma_tin"]: r["json"]["email_tk"] for r in s.nhan if r["json"] for l in r["json"]["luot"]}
+    assert theo == {"msg_0": "", "msg_A": "tk1@gmail.com", "msg_B": "tk2@gmail.com"}
+
+
+@_ca
+def test_lan_dau_chi_bu_tu_moc_va_mang_co_khong_ro_tai_khoan(m, s):
+    m.ghi("cu.jsonl", [_dong_assistant("msg_CU", luc="2026-10-31T16:59:59.000Z"),   # 23:59:59 31/10 giờ VN
+                       _dong_assistant("msg_MOC", luc="2026-10-31T17:00:00.000Z")])  # 00:00 01/11 giờ VN
+    m.chay(s.url)
+    assert _luot_gui(s) == ["msg_MOC"]
+    assert s.nhan[0]["json"]["email_tk"] == ""
+    m.ghi("cu.jsonl", [_dong_assistant("msg_SAU_CU", luc="2026-10-30T00:00:00.000Z")])  # sau lần đầu: không lọc mốc
+    m.chay(s.url)
+    assert _luot_gui(s) == ["msg_MOC", "msg_SAU_CU"]
+
+
+# ============================================================ ca — ticket 05 (phía máy: % tài khoản)
+@_ca
+def test_do_pt_tai_khoan_gui_ket_qua_khong_gui_token(m, s):
+    m.dat_token()
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    m.chay(s.url)
+    assert len(s.hoi_usage) == 1
+    assert s.hoi_usage[0].get("Authorization") == f"Bearer {TOKEN}"
+    tat_ca = b"".join(r["raw"] for r in s.nhan) + json.dumps([r["headers"] for r in s.nhan]).encode()
+    for bi_mat in (TOKEN, "REFRESH_", "uuid-bi-mat", "TOKEN_BI_MAT"):
+        assert bi_mat.encode() not in tat_ca, bi_mat
+    tk = s.nhan[-1]["json"]["tai_khoan"]
+    assert tk["email"] == "tk1@gmail.com" and tk["subscription_created_at"] == "2026-05-12T03:04:05.000Z"
+    do = tk["do"]
+    assert do["trang_thai"] == "ok" and do["ly_do"] is None and do["luc"].endswith("Z")
+    assert (do["pt_5h"], do["reset_5h"], do["pt_tuan"], do["reset_tuan"]) == (
+        12.0, "2026-11-03T08:00:00+00:00", 53.0, "2026-11-04T06:00:00.818775+00:00")
+    assert set(tk) == {"email", "subscription_created_at", "do"}
+
+
+@_ca
+def test_do_gian_cach_10_phut(m, s):
+    m.dat_token()
+    for i in range(3):
+        m.ghi("ses-1.jsonl", [_dong_assistant(f"msg_{i}")])
+        m.chay(s.url)
+    assert len(s.hoi_usage) == 1
+    assert "do" in s.nhan[0]["json"]["tai_khoan"] and "do" not in s.nhan[-1]["json"]["tai_khoan"]
+
+
+@_ca
+def test_do_khong_co_luot_moi_van_gui_ket_qua(m, s):
+    m.dat_token()
+    m.chay(s.url)
+    assert s.nhan and s.nhan[-1]["json"]["luot"] == [] and s.nhan[-1]["json"]["tai_khoan"]["do"]["trang_thai"] == "ok"
+
+
+@_ca
+def test_do_hong_bao_khong_lay_duoc_khong_so_doan(m, s):
+    m.dat_token()
+    s.usage_ma = 401
+    m.chay(s.url)
+    do = s.nhan[-1]["json"]["tai_khoan"]["do"]
+    assert do["trang_thai"] == "khong_lay_duoc" and do["ly_do"] == "HTTP 401"
+    assert do["pt_tuan"] is None and do["pt_5h"] is None
+
+
+@_ca
+def test_do_shape_la_bao_khong_lay_duoc(m, s):
+    m.dat_token()
+    s.usage_tra = {"seven_day": {"utilization": "53%"}}
+    m.chay(s.url)
+    do = s.nhan[-1]["json"]["tai_khoan"]["do"]
+    assert do["trang_thai"] == "khong_lay_duoc" and do["pt_tuan"] is None
+
+
+@_ca
+def test_token_het_han_khong_goi_khong_tu_lam_moi(m, s):
+    m.dat_token(het_han_ms=int((time.time() - 60) * 1000))
+    m.chay(s.url)
+    assert s.hoi_usage == []
+    do = s.nhan[-1]["json"]["tai_khoan"]["do"]
+    assert do["trang_thai"] == "khong_lay_duoc" and "hết hạn" in do["ly_do"]
+
+
+@_ca
+def test_khong_co_token_van_gui_luot(m, s):
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    m.chay(s.url)
+    assert _luot_gui(s) == ["msg_A"]
+    assert s.nhan[-1]["json"]["tai_khoan"]["do"]["trang_thai"] == "khong_lay_duoc"
 
 
 @_ca

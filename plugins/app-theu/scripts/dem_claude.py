@@ -37,6 +37,11 @@ import urllib.request
 
 PHIEN_BAN_SCRIPT = "1"
 URL_MAC_DINH = "https://app.lanhcanh.com/api/v2/dem-claude/lo"
+# Đường NỘI BỘ của Anthropic (Claude Code dùng cho /usage) — có thể đổi bất kỳ lúc nào ⇒ hỏng
+# thì báo "không lấy được", tuyệt đối không đoán số.
+URL_USAGE_MAC_DINH = "https://api.anthropic.com/api/oauth/usage"
+GIAN_CACH_DO_GIAY = 600             # mỗi máy hỏi % tài khoản tối đa 10 phút một lần
+KEYCHAIN_MAC = "Claude Code-credentials"
 MOC_BU_MAC_DINH = "2026-11-01"      # lần chạy đầu: đếm bù log từ ngày này (giờ VN)
 LO_TOI_DA = 500                     # lượt mỗi request (máy chủ nhận tối đa 1000)
 HANG_DOI_TOI_DA = 400               # số lô chờ gửi giữ lại tối đa (~200k lượt)
@@ -243,21 +248,92 @@ def _quet(tt: dict, *, lan_dau: bool) -> list[dict]:
     return ra
 
 
-def _email_tk() -> str | None:
+
+# ------------------------------------------------------------------ % giới hạn tài khoản (ticket 05)
+def _doc_oauth() -> dict | None:
+    """Khối `claudeAiOauth` của Claude Code trên máy này. Token CHỈ dùng tại máy để hỏi Anthropic —
+    không bao giờ ghi ra file, nhật ký hay dữ liệu gửi App Thêu. Không bao giờ tự làm mới token
+    (làm mới xoay refresh-token ⇒ có thể đăng xuất Claude Code của máy)."""
+    if sys.platform == "darwin" and not os.environ.get("CLAUDE_CONFIG_DIR"):
+        try:
+            r = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN_MAC, "-w"],
+                               capture_output=True, text=True, timeout=5)
+            if r.returncode == 0 and r.stdout.strip():
+                d = json.loads(r.stdout)
+                if isinstance(d, dict) and isinstance(d.get("claudeAiOauth"), dict):
+                    return d["claudeAiOauth"]
+        except Exception:  # noqa: BLE001
+            pass
+    d = _doc_json(_thu_muc_claude() / ".credentials.json", {})
+    o = d.get("claudeAiOauth") if isinstance(d, dict) else None
+    return o if isinstance(o, dict) else None
+
+
+def _cua_so(o) -> tuple[float | None, str | None] | None:
+    """Một khối `five_hour`/`seven_day`: (utilization, resets_at). `None` khối ⇒ (None, None).
+    Sai kiểu ⇒ trả None (= shape lạ)."""
+    if o is None:
+        return None, None
+    if not isinstance(o, dict):
+        return None
+    u, r = o.get("utilization"), o.get("resets_at")
+    if isinstance(u, bool) or not isinstance(u, (int, float)) or not isinstance(r, str):
+        return None
+    return float(u), r
+
+
+def _do_tai_khoan() -> dict:
+    luc = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    hong = {"trang_thai": "khong_lay_duoc", "luc": luc, "pt_5h": None, "reset_5h": None,
+            "pt_tuan": None, "reset_tuan": None}
+    o = _doc_oauth()
+    tok = o.get("accessToken") if o else None
+    if not isinstance(tok, str) or not tok:
+        return {**hong, "ly_do": "không đọc được đăng nhập Claude của máy"}
+    het = o.get("expiresAt")
+    if isinstance(het, (int, float)) and het / 1000 <= time.time():
+        return {**hong, "ly_do": "token đăng nhập đã hết hạn"}
+    req = urllib.request.Request(os.environ.get("APP_THEU_DEM_URL_USAGE") or URL_USAGE_MAC_DINH, headers={
+        "Authorization": f"Bearer {tok}", "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent": f"app-theu-dem-claude/{PHIEN_BAN_SCRIPT}"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read() or b"null")
+    except urllib.error.HTTPError as e:
+        return {**hong, "ly_do": f"HTTP {e.code}"}
+    except Exception as e:  # noqa: BLE001
+        return {**hong, "ly_do": f"không nối được ({type(e).__name__})"}
+    if not isinstance(d, dict):
+        return {**hong, "ly_do": "shape lạ"}
+    c5, c7 = _cua_so(d.get("five_hour")), _cua_so(d.get("seven_day"))
+    if c5 is None or c7 is None or c7[0] is None:
+        return {**hong, "ly_do": "shape lạ"}
+    return {"trang_thai": "ok", "luc": luc, "pt_5h": c5[0], "reset_5h": c5[1],
+            "pt_tuan": c7[0], "reset_tuan": c7[1], "ly_do": None}
+
+
+def _thong_tin_tk() -> dict | None:
     cfg = _doc_json(_file_cau_hinh_claude(), {})
     acc = cfg.get("oauthAccount") if isinstance(cfg, dict) else None
-    e = acc.get("emailAddress") if isinstance(acc, dict) else None
-    return e if isinstance(e, str) and e else None
+    if not isinstance(acc, dict):
+        return None
+    e, sub = acc.get("emailAddress"), acc.get("subscriptionCreatedAt")
+    if not (isinstance(e, str) and e):
+        return None
+    return {"email": e, "subscription_created_at": sub if isinstance(sub, str) else None}
 
 
 # ------------------------------------------------------------------ hàng đợi gửi bù
-def _xep_hang(dl: pathlib.Path, luot: list[dict], *, email: str | None) -> None:
+def _xep_hang(dl: pathlib.Path, luot: list[dict], *, email: str | None, tk: dict | None,
+              do: dict | None) -> None:
     hd = dl / "cho_gui"
     hd.mkdir(parents=True, exist_ok=True)
     goc = f"{time.time_ns():020d}"
-    for i in range(0, len(luot), LO_TOI_DA):
-        _ghi_json(hd / f"{goc}_{i // LO_TOI_DA:05d}.json",
-                  {"email_tk": email or "", "luot": luot[i:i + LO_TOI_DA]})
+    for so, i in enumerate(range(0, max(len(luot), 1), LO_TOI_DA)):
+        lo: dict = {"email_tk": email or "", "luot": luot[i:i + LO_TOI_DA]}
+        if tk:
+            lo["tai_khoan"] = {**tk, **({"do": do} if do and so == 0 else {})}
+        _ghi_json(hd / f"{goc}_{so:05d}.json", lo)
     ds = sorted(hd.glob("*.json"))
     for p in ds[: max(0, len(ds) - HANG_DOI_TOI_DA)]:  # trần: bỏ lô CŨ nhất
         p.unlink(missing_ok=True)
@@ -315,10 +391,15 @@ def chay_mot_luot() -> dict:
         da_gap: set = set()
         luot = [l for l in _quet(tt, lan_dau=lan_dau)
                 if not (l["ma_tin"] in da_gap or da_gap.add(l["ma_tin"]))]
+        tk = _thong_tin_tk()
         # Lượt đếm bù lần đầu: không biết lúc đó máy đăng nhập tài khoản nào ⇒ email rỗng.
-        email = None if lan_dau else _email_tk()
-        if luot:
-            _xep_hang(dl, luot, email=email)
+        email = None if lan_dau else (tk or {}).get("email")
+        do = None
+        if tk and time.time() - float(tt.get("do_cuoi") or 0) >= GIAN_CACH_DO_GIAY:
+            tt["do_cuoi"] = time.time()  # ghi cả khi hỏng — không dồn dập hỏi lại
+            do = _do_tai_khoan()
+        if luot or do:
+            _xep_hang(dl, luot, email=email, tk=tk, do=do)
         tt["da_khoi_tao"] = True
         _ghi_json(p_tt, tt)  # vị trí chỉ lưu SAU khi lượt đã nằm an toàn trong hàng đợi
         kq = _gui_hang(dl, khoa)
