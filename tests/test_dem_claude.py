@@ -420,6 +420,28 @@ def test_khong_co_token_van_gui_luot(m, s):
     assert s.nhan[-1]["json"]["tai_khoan"]["do"]["trang_thai"] == "khong_lay_duoc"
 
 
+# ============================================================ ca — ticket 07 (prompt cài đọc trạng thái)
+@_ca
+def test_trang_thai_sau_khi_hook_gui_duoc(m, s):
+    r = m.chay(s.url, args=("--trang-thai",))
+    assert r.returncode == 1 and "chưa chạy lần nào" in r.stdout
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    m.chay(s.url)
+    r = m.chay(s.url, args=("--trang-thai",))
+    assert r.returncode == 0, r.stdout
+    assert "✅" in r.stdout and "lần gửi được cuối" in r.stdout and "còn 0 lô chờ" in r.stdout
+    assert KHOA not in r.stdout
+
+
+@_ca
+def test_trang_thai_bao_loi_va_lo_cho(m, s):
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    s.ma_tra = 401
+    m.chay(s.url)
+    r = m.chay(s.url, args=("--trang-thai",))
+    assert r.returncode == 1 and "còn 1 lô chờ" in r.stdout and "HTTP 401" in r.stdout, r.stdout
+
+
 @_ca
 def test_tach_nen_hook_thoat_ngay_roi_van_gui(m, s):
     m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])

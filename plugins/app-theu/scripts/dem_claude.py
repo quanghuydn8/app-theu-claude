@@ -20,7 +20,8 @@ Chỉ dùng thư viện chuẩn Python 3 — chạy y nhau trên Windows / macOS
 Chế độ:
   (không tham số)  hook — tách nền rồi thoát (APP_THEU_DEM_DONG_BO=1: chạy luôn, cho test)
   --chay           process nền: quét log + gửi
-  --thu            chạy thử khi cài: chạy luôn và IN kết quả cho người đọc
+  --thu            chạy luôn và IN kết quả (cần env khoá — dùng khi phát triển)
+  --trang-thai     prompt cài đọc: hook đã chạy/gửi được chưa, còn bao nhiêu lô chờ (không cần khoá)
 """
 from __future__ import annotations
 
@@ -404,9 +405,29 @@ def chay_mot_luot() -> dict:
         _ghi_json(p_tt, tt)  # vị trí chỉ lưu SAU khi lượt đã nằm an toàn trong hàng đợi
         kq = _gui_hang(dl, khoa)
         kq["quet"] = len(luot)
+        bay_gio = _dt.datetime.now(_VN).isoformat(timespec="seconds")
+        tt["lan_chay_cuoi"] = bay_gio
+        tt["loi_cuoi"] = kq.get("loi")
+        if not kq.get("loi"):
+            tt["gui_ok_luc"] = bay_gio
+        _ghi_json(p_tt, tt)
         if kq.get("loi"):
             _ghi_nhat_ky(dl, f"gửi chưa được: {kq['loi']} (còn {kq['con_cho']} lô chờ)")
         return kq
+
+
+def trang_thai() -> tuple[bool, str]:
+    """Cho prompt cài đọc: hook đã chạy chưa, gửi được không, còn bao nhiêu lô chờ. Không cần khoá."""
+    dl = _thu_muc_du_lieu()
+    tt = _doc_json(dl / "trang_thai.json", {})
+    if not isinstance(tt, dict) or not tt.get("da_khoi_tao"):
+        return False, ("❌ Bộ đếm Claude: chưa chạy lần nào trên máy này — khởi động lại Claude Code "
+                       "(Developer: Reload Window) rồi nhắn Claude một câu bất kỳ, chờ ~30 giây rồi kiểm lại.")
+    cho = len(list((dl / "cho_gui").glob("*.json"))) if (dl / "cho_gui").is_dir() else 0
+    if tt.get("loi_cuoi"):
+        return False, (f"❌ Bộ đếm Claude: lần chạy cuối {tt.get('lan_chay_cuoi')} chưa gửi được — "
+                       f"{tt['loi_cuoi']}; còn {cho} lô chờ (sẽ tự gửi bù).")
+    return True, (f"✅ Bộ đếm Claude chạy được: lần gửi được cuối {tt.get('gui_ok_luc')}, còn {cho} lô chờ.")
 
 
 def _tach_nen() -> None:
@@ -422,6 +443,10 @@ def _tach_nen() -> None:
 
 def main(argv: list[str]) -> int:
     che_do = argv[1] if len(argv) > 1 else ""
+    if che_do == "--trang-thai":
+        ok, chu = trang_thai()
+        print(chu)
+        return 0 if ok else 1
     if che_do == "--thu":
         kq = chay_mot_luot()
         if kq.get("loi"):
