@@ -285,6 +285,29 @@ def test_may_chu_sap_de_danh_roi_gui_bu(m, s):
 
 
 @_ca
+def test_lo_bi_tu_choi_4xx_bo_lo_do_khong_tac_ca_hang(m, s):
+    """400/413 = lô hỏng vĩnh viễn ⇒ bỏ lô đó (ghi nhật ký), các lô sau vẫn đi. 401 (khoá sai) mới giữ lại."""
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    s.ma_tra = 413
+    m.chay(s.url)
+    s.ma_tra = 200
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_B")])
+    m.chay(s.url)
+    assert sorted(s.da_co) == ["msg_B"]
+    assert "bỏ lô" in (m.data / "dem_claude" / "nhat_ky.log").read_text(encoding="utf-8")
+
+
+@_ca
+def test_khoa_sai_401_giu_lo_cho_doi_khoa(m, s):
+    m.ghi("ses-1.jsonl", [_dong_assistant("msg_A")])
+    s.ma_tra = 401
+    m.chay(s.url)
+    s.ma_tra = 200
+    m.chay(s.url)
+    assert sorted(s.da_co) == ["msg_A"]
+
+
+@_ca
 def test_hai_process_chay_chong_khong_gui_doi(m, s):
     m.ghi("ses-1.jsonl", [_dong_assistant(f"msg_{i}") for i in range(300)])
     env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}

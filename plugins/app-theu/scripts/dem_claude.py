@@ -358,6 +358,12 @@ def _gui_hang(dl: pathlib.Path, khoa: str) -> dict:
             with urllib.request.urlopen(req, timeout=20) as r:
                 tra = json.loads(r.read() or b"{}")
         except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500 and e.code not in (401, 408, 429):
+                # Lô hỏng vĩnh viễn (400/413/422…) — giữ lại sẽ chặn mọi lô sau ⇒ bỏ, ghi nhật ký.
+                p.unlink(missing_ok=True)
+                _ghi_nhat_ky(dl, f"máy chủ từ chối lô {p.name} (HTTP {e.code}) — bỏ lô")
+                continue
+            # 401 (khoá sai/thu hồi — đổi khoá xong gửi tiếp), 408/429/5xx (tạm thời) ⇒ giữ, lần sau thử lại.
             kq["loi"] = f"HTTP {e.code}" + (" — khoá Claude sai hoặc đã thu hồi" if e.code == 401 else "")
             kq["con_cho"] = len(ds) - i
             return kq

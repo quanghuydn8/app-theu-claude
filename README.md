@@ -25,6 +25,9 @@ Trong ô chat Claude Code (VS Code) gõ lần lượt:
 
 Claude Code hỏi **Khoá Claude** → dán khoá vừa chép. Khoá được lưu trong kho bí mật của máy.
 
+> **Extension VS Code không có lệnh `/plugin` trong ô chat.** Dùng prompt cài ở dưới (Claude tự tìm chương trình
+> `claude` trong extension), hoặc chạy bản terminal ở mục "Cài bằng terminal".
+
 Khởi động lại phiên Claude Code, rồi thử: *"App thêu hôm nay còn bao nhiêu mã kẹt?"*
 
 <details>
@@ -54,13 +57,14 @@ Cài plugin App Thêu (kèm bộ đếm Claude) cho máy này. Làm lần lượ
    - macOS: chạy `python3 --version`. Không có thì chạy `xcode-select --install`, bảo tôi bấm Cài trong hộp thoại, chờ xong rồi kiểm lại.
    - Linux: chạy `python3 --version`. Không có thì dừng và bảo tôi cài python3 bằng trình quản lý gói.
 3. Riêng Windows: kiểm Git Bash (có file "C:\Program Files\Git\bin\bash.exe" hoặc lệnh `where bash` ra Git). Không có thì chạy `winget install -e --id Git.Git`.
-4. Đọc file ~/.claude/plugins/installed_plugins.json (Windows: %USERPROFILE%\.claude\plugins\installed_plugins.json).
-   - Nếu CHƯA có "app-theu@app-theu-claude": bảo tôi tự gõ vào ô chat 2 lệnh dưới, dán khoá Claude khi được hỏi, rồi chạy "Developer: Reload Window" và dán lại prompt này:
-     /plugin marketplace add quanghuydn8/app-theu-claude
-     /plugin install app-theu@app-theu-claude
-   - Nếu CÓ nhưng phiên bản thấp hơn 1.1.0: bảo tôi tự gõ "/plugin marketplace update app-theu-claude", rồi "/plugin" → chọn app-theu → cập nhật, rồi Reload Window và dán lại prompt này.
-   - Nếu CÓ bản 1.1.0 trở lên: sang bước 5.
-5. Kiểm bộ đếm: tìm thư mục bản mới nhất trong ~/.claude/plugins/cache/app-theu-claude/app-theu/ và chạy file scripts/dem_claude.py --trang-thai trong đó (Windows: `py -3 <đường dẫn>\scripts\dem_claude.py --trang-thai`; macOS/Linux: `python3 <đường dẫn>/scripts/dem_claude.py --trang-thai`).
+4. Tìm chương trình claude (gọi là <CLAUDE>): lệnh `claude` nếu có sẵn; không thì file trong extension VS Code — bản mới nhất của ~/.vscode/extensions/anthropic.claude-code-*/resources/native-binary/claude (Windows: %USERPROFILE%\.vscode\extensions\anthropic.claude-code-*\resources\native-binary\claude.exe). Extension VS Code KHÔNG có lệnh /plugin trong ô chat, nên luôn dùng <CLAUDE> theo cách dưới.
+5. Đọc file ~/.claude/plugins/installed_plugins.json (Windows: %USERPROFILE%\.claude\plugins\installed_plugins.json).
+   - Nếu CHƯA có "app-theu@app-theu-claude" (lần cài đầu cần dán khoá — bạn không được làm thay): đưa tôi 2 lệnh dưới với <CLAUDE> thay bằng đường dẫn đầy đủ (Windows có dấu & đầu dòng nếu đường dẫn có dấu cách), bảo tôi mở Terminal của VS Code (Ctrl+`), chạy lần lượt, dán khoá Claude khi được hỏi, rồi chạy "Developer: Reload Window" và dán lại prompt này:
+     <CLAUDE> plugin marketplace add quanghuydn8/app-theu-claude
+     <CLAUDE> plugin install app-theu@app-theu-claude
+   - Nếu CÓ nhưng phiên bản thấp hơn 1.1.0: TỰ chạy `<CLAUDE> plugin marketplace update app-theu-claude` rồi `<CLAUDE> plugin update app-theu@app-theu-claude` (không cần khoá, khoá cũ giữ nguyên), rồi bảo tôi chạy "Developer: Reload Window" và dán lại prompt này.
+   - Nếu CÓ bản 1.1.0 trở lên: sang bước 6.
+6. Kiểm bộ đếm: tìm thư mục bản mới nhất trong ~/.claude/plugins/cache/app-theu-claude/app-theu/ và chạy file scripts/dem_claude.py --trang-thai trong đó (Windows: `py -3 <đường dẫn>\scripts\dem_claude.py --trang-thai`; macOS/Linux: `python3 <đường dẫn>/scripts/dem_claude.py --trang-thai`).
    - Ra "✅": báo tôi "đã cài xong" kèm dòng đó.
    - Ra "chưa chạy lần nào": hook chỉ chạy khi một lượt trả lời KẾT THÚC — bảo tôi nhắn thêm "kiểm lại", rồi ở lượt đó chạy lại đúng lệnh trên một lần.
    - Vẫn "❌": báo nguyên văn dòng lỗi cho tôi, không tự sửa file của plugin.
@@ -71,6 +75,10 @@ Cài plugin App Thêu (kèm bộ đếm Claude) cho máy này. Làm lần lượ
 ```
 /plugin marketplace update app-theu-claude
 ```
+
+Extension VS Code (không có `/plugin`): dán prompt cài ở trên, Claude tự chạy hai lệnh
+`claude plugin marketplace update app-theu-claude` và `claude plugin update app-theu@app-theu-claude`
+(dùng file `claude` trong thư mục extension), khoá cũ giữ nguyên. Xong chạy **Developer: Reload Window**.
 
 ## 4. Đổi khoá / mất máy
 
