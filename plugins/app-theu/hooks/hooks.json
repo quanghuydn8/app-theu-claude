@@ -1,0 +1,17 @@
+{
+  "description": "Bộ đếm Claude: sau mỗi lượt trả lời, gửi CON SỐ dùng (không nội dung) về App Thêu bằng khoá Claude của máy.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 30,
+            "command": "if command -v py >/dev/null 2>&1; then py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/dem_claude.py\"; else python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/dem_claude.py\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
